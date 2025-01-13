@@ -108,12 +108,74 @@ function stopi2p {
 	fi
 }
 
+function disable_ipv6() {
+    echo -e "\n$GREEN[$BLUE i$GREEN ]$BLUE Stopping IPv6 services:$RESETCOLOR\n"
+
+    # Remove current IPv6 settings if it exists
+    if [ -f /etc/sysctl.d/98-kali-anonsurf.conf ]; then
+        rm /etc/sysctl.d/98-kali-anonsurf.conf
+    fi
+
+    # Add comprehensive IPv6 disable configuration
+    cat << EOF >> /etc/sysctl.d/98-kali-anonsurf.conf
+# Disable IPv6 - Added by kali-anonsurf
+net.ipv6.conf.all.disable_ipv6 = 1 #kali-anonsurf
+net.ipv6.conf.default.disable_ipv6 = 1 #kali-anonsurf
+net.ipv6.conf.lo.disable_ipv6 = 1 #kali-anonsurf
+EOF
+
+    # Apply settings
+    if ! sysctl -p /etc/sysctl.d/98-kali-anonsurf.conf > /dev/null; then
+        echo -e "$RED Error applying sysctl settings$RESETCOLOR"
+        return 1
+    fi
+
+    # Verify IPv6 is disabled
+    if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" != "1" ]; then
+        echo -e "$RED Failed to disable IPv6$RESETCOLOR"
+        return 1
+    fi
+
+    echo -e "$GREEN IPv6 successfully disabled$RESETCOLOR"
+    return 0
+}
+
+function enable_ipv6() {
+    echo -e "\n$GREEN[$BLUE i$GREEN ]$BLUE Reenabling IPv6 services:$RESETCOLOR\n"
+
+    # Remove the config file if it exists
+    if [ -f /etc/sysctl.d/backup/98-kali-anonsurf ]; then
+        rm -f /etc/sysctl.d/98-kali-anonsurf.conf
+		echo -e "$GREEN Removed anonsurf sysctl config$RESETCOLOR"
+    fi
+
+    # Reload all sysctl settings
+    if ! sysctl --system > /dev/null; then
+        echo -e "$RED Error reloading sysctl settings$RESETCOLOR"
+        return 1
+    fi
+
+    # Verify IPv6 is enabled
+    if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" != "0" ]; then
+        echo -e "$RED Failed to forcibly reenable IPv6$RESETCOLOR"
+        # return 1
+    fi
+
+    # Restart network services
+    service network-manager force-reload > /dev/null 2>&1
+    service nscd start > /dev/null 2>&1
+    service dnsmasq start > /dev/null 2>&1
+
+    echo -e "$GREEN IPv6 successfully enabled$RESETCOLOR"
+    return 0
+}
+
 
 function ip {
 
 	echo -e "\nMy ip is:\n"
 	sleep 1
-	curl "https://ipinfo.io" # Had a few issues with FrozenBox giving me the wrong IP address
+	curl "https://api.ipify.org" # Decent provider serving 30b requests/month, and doesn't block TOR
 	echo -e "\n\n----------------------------------------------------------------------"
 }
 
@@ -134,13 +196,7 @@ function start {
 		exit 1
 	fi	
 	
-	# Kill IPv6 services
-	echo -e "\n$GREEN[$BLUE i$GREEN ]$BLUE Stopping IPv6 services:$RESETCOLOR\n"
-	sed -i '/^.*\#kali-anonsurf$/d' /etc/sysctl.conf #delete lines containing #kali-anonsurf in /etc/sysctl.conf
-	# add lines to sysctl.conf that will kill ipv6 services
-	echo "net.ipv6.conf.all.disable_ipv6 = 1 #kali-anonsurf" >> /etc/sysctl.conf
-	echo "net.ipv6.conf.default.disable_ipv6=1 #kali-anonsurf" >> /etc/sysctl.conf
-	sysctl -p > /dev/null  # have sysctl reread /etc/sysctl.conf
+	disable_ipv6
 
 	echo -e "\n$GREEN[$BLUE i$GREEN ]$BLUE Starting anonymous mode:$RESETCOLOR\n"
 	
@@ -248,12 +304,7 @@ function stop {
 	echo -e "\n$GREEN[$BLUE i$GREEN ]$BLUE Reenabling IPv6 services:$RESETCOLOR\n"
 
 	# reenable IPv6 services
-	sed -i '/^.*\#kali-anonsurf$/d' /etc/sysctl.conf #delete lines containing #kali-anonsurf in /etc/sysctl.conf
-	sysctl -p # have sysctl reread /etc/sysctl.conf
-
-	service network-manager force-reload > /dev/null 2>&1
-	service nscd start > /dev/null 2>&1
-	service dnsmasq start > /dev/null 2>&1
+	enable_ipv6
 	
 	echo -e " $GREEN*$BLUE Anonymous mode stopped$RESETCOLOR\n"
 }
@@ -311,7 +362,7 @@ Parrot AnonSurf Module
 	$RED restart$BLUE -$GREEN Combines \"stop\" and \"start\" options
 	$RED change$BLUE -$GREEN Changes identity restarting TOR
 	$RED status$BLUE -$GREEN Check if AnonSurf is working properly
-	$RED myip$BLUE -$GREEN Show your current IP address
+	$RED myip$BLUE -$GREEN Show your current IP address $RED(RISKY)$RESETCOLOR
 	----[ I2P related features ]----
 	$RED starti2p$BLUE -$GREEN Start i2p services
 	$RED stopi2p$BLUE -$GREEN Stop i2p services
